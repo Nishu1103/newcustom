@@ -15,10 +15,12 @@
 }
 
 body {
-  background-color: #f5f5f5;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #f0f4ff 0, #f5f5f5 45%, #eceff1 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   padding: 24px;
   color: #222;
 }
@@ -29,6 +31,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  background: #ffffff;
+  padding: 24px 28px 28px;
+  border-radius: 16px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.15);
 }
 
 .header {
@@ -40,15 +46,16 @@ body {
 }
 
 .title {
-  font-size: 1.6rem;
+  font-size: 1.8rem;
   font-weight: 700;
   color: #222;
 }
 
 .subtitle {
-  font-size: 0.9rem;
-  color: #666;
+  font-size: 0.95rem;
+  color: #5f6368;
   max-width: 480px;
+  line-height: 1.5;
 }
 
 /* Controls panel */
@@ -56,7 +63,8 @@ body {
   background: #fff;
   padding: 20px 30px;
   border-radius: 12px;
-  box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
   display: flex;
   gap: 20px;
   align-items: center;
@@ -68,6 +76,15 @@ body {
 .controls label {
   font-weight: bold;
   color: #333;
+}
+
+.file-name {
+  font-size: 0.85rem;
+  color: #777;
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .controls input[type="file"] {
@@ -99,8 +116,7 @@ body {
 /* Canvas styling */
 canvas {
   display: block;
-  width: 100%;
-  max-width: 900px; /* responsive for web preview */
+  max-width: 100%;
   height: auto;     /* keep aspect ratio */
   border: 2px solid #ccc;
   border-radius: 12px;
@@ -111,6 +127,9 @@ canvas {
   width: 100%;
   display: flex;
   justify-content: center;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 14px;
 }
 
 @media (max-width: 768px) {
@@ -160,6 +179,7 @@ canvas {
   <div class="controls">
       <label for="imageInput">Upload Image</label>
       <input type="file" id="imageInput" accept="image/*">
+      <span id="fileName" class="file-name">No file chosen</span>
       <button onclick="downloadPoster()">Download PNG</button>
   </div>
 
@@ -172,47 +192,58 @@ canvas {
 const canvas = document.getElementById("canva");
 const ctx = canvas.getContext("2d");
 
-/* High-res A4 canvas for printing */
-canvas.width = 2480;
-canvas.height = 3508;
-
-/* Load background image */
+/* Load background image and size the canvas to match it */
 const bg = new Image();
 bg.src = "template.png"; // replace with your background path
-bg.onload = draw;
 
-/* Ellipse cropping area */
-const circle = { x: 1250, y: 1633, a: 449, b: 354 };
+/* Circular cropping area - will be centered on the canvas */
+const circle = { x: 0, y: 0, r: 325 };
 
 let userImg = null;
 
+bg.onload = () => {
+  // Match canvas resolution to the template image so we keep full quality.
+  canvas.width = bg.width;
+  canvas.height = bg.height;
+
+  // Center the circle on the canvas
+  circle.x = 900;
+  circle.y = 1480;
+
+  draw();
+};
+
 /* Draw function */
 function draw() {
+  if (!bg.complete) return;
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  /* Draw background full canvas */
+  /* Draw background at its native resolution */
   ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
 
-  /* Draw user uploaded image in ellipse */
+  /* Draw user uploaded image in a centered circle, using its actual pixel size */
   if (userImg) {
     ctx.save();
     ctx.beginPath();
-    ctx.ellipse(circle.x, circle.y, circle.a, circle.b, 0, 0, Math.PI * 2);
+    ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
     ctx.clip();
 
-    ctx.drawImage(
-      userImg,
-      circle.x - circle.a,
-      circle.y - circle.b,
-      circle.a * 2,
-      circle.b * 2
-    );
+    const imgWidth = userImg.width;
+    const imgHeight = userImg.height;
+
+    // Center the image on the circle using its original size (no shrinking).
+    const dx = circle.x - imgWidth / 2;
+    const dy = circle.y - imgHeight / 2;
+
+    ctx.drawImage(userImg, dx, dy, imgWidth, imgHeight);
 
     ctx.restore();
   }
 }
 
 /* Upload image event */
+const fileNameEl = document.getElementById("fileName");
 document.getElementById("imageInput").addEventListener("change", e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -223,6 +254,10 @@ document.getElementById("imageInput").addEventListener("change", e => {
     draw();
   };
   img.src = URL.createObjectURL(file);
+
+  if (fileNameEl) {
+    fileNameEl.textContent = file.name;
+  }
 });
 
 /* Download canvas as PNG */
