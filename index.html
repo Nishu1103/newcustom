@@ -87,6 +87,34 @@ body {
   text-overflow: ellipsis;
 }
 
+.controls-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.slider-label {
+  font-size: 0.85rem;
+  color: #555;
+  font-weight: 600;
+}
+
+.zoom-slider {
+  width: 180px;
+}
+
+.zoom-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .controls input[type="file"] {
   padding: 6px 10px;
   border-radius: 8px;
@@ -177,10 +205,26 @@ canvas {
   </div>
 
   <div class="controls">
-      <label for="imageInput">Upload Image</label>
-      <input type="file" id="imageInput" accept="image/*">
-      <span id="fileName" class="file-name">No file chosen</span>
-      <button onclick="downloadPoster()">Download PNG</button>
+      <div class="controls-row">
+        <label for="imageInput">Upload Image</label>
+        <input type="file" id="imageInput" accept="image/*">
+        <span id="fileName" class="file-name">No file chosen</span>
+        <button onclick="downloadPoster()">Download PNG</button>
+      </div>
+      <div class="controls-row">
+        <div class="controls-group">
+          <span class="slider-label">Crop / Zoom</span>
+          <input
+            id="zoomSlider"
+            class="zoom-slider"
+            type="range"
+            min="0.5"
+            max="2.5"
+            step="0.01"
+            value="1"
+          />
+        </div>
+      </div>
   </div>
 
   <div class="canvas-wrapper">
@@ -200,6 +244,9 @@ bg.src = "template.png"; // replace with your background path
 const circle = { x: 0, y: 0, r: 325 };
 
 let userImg = null;
+let zoom = 1;
+let offsetX = 0;
+let offsetY = 0;
 
 bg.onload = () => {
   // Match canvas resolution to the template image so we keep full quality.
@@ -222,21 +269,24 @@ function draw() {
   /* Draw background at its native resolution */
   ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
 
-  /* Draw user uploaded image in a centered circle, using its actual pixel size */
+  /* Draw user uploaded image in the circle, using zoom to crop */
   if (userImg) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
     ctx.clip();
 
-    const imgWidth = userImg.width;
-    const imgHeight = userImg.height;
+    const baseWidth = userImg.width;
+    const baseHeight = userImg.height;
 
-    // Center the image on the circle using its original size (no shrinking).
-    const dx = circle.x - imgWidth / 2;
-    const dy = circle.y - imgHeight / 2;
+    const scaledWidth = baseWidth * zoom;
+    const scaledHeight = baseHeight * zoom;
 
-    ctx.drawImage(userImg, dx, dy, imgWidth, imgHeight);
+    // Center the scaled image on the circle, then apply user drag offset.
+    const dx = circle.x - scaledWidth / 2 + offsetX;
+    const dy = circle.y - scaledHeight / 2 + offsetY;
+
+    ctx.drawImage(userImg, dx, dy, scaledWidth, scaledHeight);
 
     ctx.restore();
   }
@@ -244,6 +294,26 @@ function draw() {
 
 /* Upload image event */
 const fileNameEl = document.getElementById("fileName");
+const zoomSlider = document.getElementById("zoomSlider");
+let isDragging = false;
+let lastX = 0;
+let lastY = 0;
+
+if (zoomSlider) {
+  // Disable zoom until an image is uploaded
+  zoomSlider.disabled = true;
+
+  zoomSlider.addEventListener("input", e => {
+    if (!userImg) return; // do nothing before upload
+
+    const value = parseFloat(e.target.value);
+    if (!isNaN(value)) {
+      zoom = value;
+      draw();
+    }
+  });
+}
+
 document.getElementById("imageInput").addEventListener("change", e => {
   const file = e.target.files[0];
   if (!file) return;
@@ -251,6 +321,14 @@ document.getElementById("imageInput").addEventListener("change", e => {
   const img = new Image();
   img.onload = () => {
     userImg = img;
+    // Reset crop (zoom + position) and enable zoom controls on each new image
+    zoom = 1;
+    offsetX = 0;
+    offsetY = 0;
+    if (zoomSlider) {
+      zoomSlider.value = "1";
+      zoomSlider.disabled = false;
+    }
     draw();
   };
   img.src = URL.createObjectURL(file);
@@ -258,6 +336,74 @@ document.getElementById("imageInput").addEventListener("change", e => {
   if (fileNameEl) {
     fileNameEl.textContent = file.name;
   }
+});
+
+// Drag-to-crop (pan) inside the circle
+function getEventPos(evt) {
+  const rect = canvas.getBoundingClientRect();
+  if (evt.touches && evt.touches[0]) {
+    return {
+      x: evt.touches[0].clientX - rect.left,
+      y: evt.touches[0].clientY - rect.top
+    };
+  }
+  return {
+    x: evt.clientX - rect.left,
+    y: evt.clientY - rect.top
+  };
+}
+
+canvas.addEventListener("mousedown", evt => {
+  if (!userImg) return;
+  isDragging = true;
+  const pos = getEventPos(evt);
+  lastX = pos.x;
+  lastY = pos.y;
+});
+
+canvas.addEventListener("mousemove", evt => {
+  if (!isDragging || !userImg) return;
+  const pos = getEventPos(evt);
+  const dx = pos.x - lastX;
+  const dy = pos.y - lastY;
+  lastX = pos.x;
+  lastY = pos.y;
+  offsetX += dx;
+  offsetY += dy;
+  draw();
+});
+
+canvas.addEventListener("mouseup", () => {
+  isDragging = false;
+});
+
+canvas.addEventListener("mouseleave", () => {
+  isDragging = false;
+});
+
+canvas.addEventListener("touchstart", evt => {
+  if (!userImg) return;
+  isDragging = true;
+  const pos = getEventPos(evt);
+  lastX = pos.x;
+  lastY = pos.y;
+});
+
+canvas.addEventListener("touchmove", evt => {
+  if (!isDragging || !userImg) return;
+  evt.preventDefault();
+  const pos = getEventPos(evt);
+  const dx = pos.x - lastX;
+  const dy = pos.y - lastY;
+  lastX = pos.x;
+  lastY = pos.y;
+  offsetX += dx;
+  offsetY += dy;
+  draw();
+}, { passive: false });
+
+canvas.addEventListener("touchend", () => {
+  isDragging = false;
 });
 
 /* Download canvas as PNG */
